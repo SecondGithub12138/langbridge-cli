@@ -16,10 +16,10 @@ DEFAULT_MODEL = "gpt-5.1-codex"
 CONFIG_DIR = Path.home() / ".langbridge"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 HISTORY_PATH = CONFIG_DIR / "history"
+RUNS_DIR = CONFIG_DIR / "runs"
 MAX_AGENT_STEPS = 8
 MAX_FILE_BYTES = 20_000
 WORKSPACE_ROOT = Path.cwd().resolve()
-RUNS_DIR = WORKSPACE_ROOT / "session-history"
 
 
 TOOL_SCHEMAS = [
@@ -114,7 +114,7 @@ def load_api_key():
 def create_run_log_path():
     RUNS_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    return RUNS_DIR / f"{timestamp}.json"
+    return RUNS_DIR / f"{timestamp}.jsonl"
 
 
 def create_prompt_session():
@@ -186,19 +186,24 @@ def read_file(path):
 def run_agent(api_key, model, messages, run_log_path):
     agent_input = list(messages)
 
-    for step in range(MAX_AGENT_STEPS):
-        write_agent_input_log(run_log_path, step, agent_input)
+    for step in range(1, MAX_AGENT_STEPS + 1):
+        request_summary = summarize_request(agent_input)
         data = create_response(api_key, model, agent_input)
         output = data.get("output", [])
         tool_calls = [item for item in output if item.get("type") == "function_call"]
 
         if not tool_calls:
+            write_loop_log(run_log_path, step, request_summary, data, [])
             return extract_output_text(output)
 
         agent_input.extend(output)
+        tool_outputs = []
         for call in tool_calls:
             tool_output = run_tool_call(call)
+            tool_outputs.append(tool_output)
             agent_input.append(tool_output)
+
+        write_loop_log(run_log_path, step, request_summary, data, tool_outputs)
 
     return "Agent stopped because it reached the maximum tool-call steps."
 
@@ -240,17 +245,24 @@ def run_tool_call(call):
     return {"type": "function_call_output", "call_id": call_id, "output": output}
 
 
-def write_agent_input_log(run_log_path, step, agent_input):
-    record = {"step": step, "agent_input": agent_input}
-    records = []
-    if run_log_path.exists():
-        records = json.loads(run_log_path.read_text(encoding="utf-8"))
+def write_loop_log(run_log_path, step, request_summary, response, tool_outputs):
+    record = {
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "step": step,
+        "request": request_summary,
+        "response": response,
+        "tool_outputs": tool_outputs,
+    }
+    with run_log_path.open("a", encoding="utf-8") as file:
+        file.write(json.dumps(record, ensure_ascii=False) + "\n")
 
-    records.append(record)
-    run_log_path.write_text(
-        json.dumps(records, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
+
+def summarize_request(agent_input):
+    return {
+        "input_items": len(agent_input),
+        "last_item_types": [item.get("type") or item.get("role") for item in agent_input[-5:]],
+        "tools": [schema["name"] for schema in TOOL_SCHEMAS],
+    }
 
 
 def extract_output_text(output):

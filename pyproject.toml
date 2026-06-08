@@ -3,6 +3,9 @@ name = "langbridge-cli"
 version = "0.1.0"
 description = "A tiny interactive coding agent CLI backed by a Codex model."
 requires-python = ">=3.11"
+dependencies = [
+    "prompt-toolkit>=3.0.52",
+]
 
 [project.scripts]
 langbridge = "langbridge_cli.main:main"
