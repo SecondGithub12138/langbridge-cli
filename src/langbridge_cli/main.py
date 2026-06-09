@@ -24,6 +24,7 @@ HISTORY_PATH = CONFIG_DIR / "history"
 MAX_AGENT_STEPS = 20
 WORKSPACE_ROOT = Path.cwd().resolve()
 RUNS_DIR = WORKSPACE_ROOT / "session-history"
+WRITE_TOOLS = {"create_file", "edit_file", "install_python_packages"}
 
 
 def main():
@@ -143,11 +144,23 @@ def run_tool_call(call):
         arguments = json.loads(call.get("arguments") or "{}")
         if name not in TOOLS:
             raise ValueError(f"Unknown tool: {name}")
+        if name in WRITE_TOOLS and not approve_write_tool(name, arguments):
+            raise PermissionError(f"{name} was not approved")
         output = TOOLS[name](**arguments)
     except Exception as error:
         output = f"Tool error: {error}"
 
     return {"type": "function_call_output", "call_id": call_id, "output": output}
+
+
+def approve_write_tool(name, arguments):
+    if not sys.stdin.isatty():
+        return False
+
+    print(f"\nApprove write tool: {name}")
+    print(json.dumps(arguments, ensure_ascii=False, indent=2))
+    answer = input("Run this tool? [y/N] ")
+    return answer.strip().lower() in {"y", "yes"}
 
 
 def write_agent_input_log(run_log_path, step, agent_input):

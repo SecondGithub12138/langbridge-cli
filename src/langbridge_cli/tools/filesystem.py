@@ -118,6 +118,26 @@ TOOL_SCHEMAS = [
             "additionalProperties": False,
         },
     },
+    {
+        "type": "function",
+        "name": "create_file",
+        "description": "Create a new UTF-8 text file under the current workspace.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "New file path relative to the current workspace.",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Full file content to write.",
+                },
+            },
+            "required": ["path", "content"],
+            "additionalProperties": False,
+        },
+    },
 ]
 
 TOOLS = {}
@@ -255,6 +275,18 @@ def edit_file(path, old_string, new_string):
 
     target.write_text(text.replace(old_string, new_string, 1), encoding="utf-8")
     return f"Edited {path}: replaced 1 occurrence."
+
+
+@tool("create_file")
+def create_file(path, content):
+    target = resolve_workspace_path(path)
+    if target.exists():
+        raise FileExistsError(f"File already exists: {path}")
+    if not target.parent.exists():
+        raise FileNotFoundError(f"Parent directory does not exist: {target.parent.relative_to(WORKSPACE_ROOT)}")
+
+    target.write_text(content, encoding="utf-8")
+    return f"Created {path}."
 
 
 def iter_paths(directory):
