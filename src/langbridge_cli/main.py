@@ -23,6 +23,7 @@ CONFIG_DIR = Path.home() / ".langbridge"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 HISTORY_PATH = CONFIG_DIR / "history"
 MAX_AGENT_STEPS = 20
+MAX_TOOL_SUMMARY_OUTPUT_CHARS = 300
 WORKSPACE_ROOT = Path.cwd().resolve()
 RUNS_DIR = WORKSPACE_ROOT / "session-history"
 WRITE_TOOLS = {"create_file", "edit_file", "install_python_packages"}
@@ -60,8 +61,11 @@ def main():
 
         turn_id += 1
         messages.append({"role": "user", "content": text})
-        reply = run_agent(api_key, model, messages, run_log_path, turn_id)
+        reply, steps = run_agent(api_key, model, messages, run_log_path, turn_id)
         messages.append({"role": "assistant", "content": reply})
+        tool_summary = summarize_turn_steps(steps)
+        if tool_summary:
+            messages.append({"role": "assistant", "content": tool_summary})
         print(f"\n{reply}\n")
 
 
@@ -112,7 +116,7 @@ def run_agent(api_key, model, messages, run_log_path, turn_id):
             steps.append({"step": step, "output": step_output})
             reply = extract_output_text(output)
             write_turn_log(run_log_path, turn_id, initial_agent_input, steps, reply)
-            return reply
+            return reply, steps
 
         agent_input.extend(output)
         for call in tool_calls:
@@ -124,7 +128,7 @@ def run_agent(api_key, model, messages, run_log_path, turn_id):
 
     reply = "Agent stopped because it reached the maximum tool-call steps."
     write_turn_log(run_log_path, turn_id, initial_agent_input, steps, reply)
-    return reply
+    return reply, steps
 
 
 def create_response(api_key, model, agent_input):
@@ -193,6 +197,38 @@ def write_turn_log(run_log_path, turn_id, initial_agent_input, steps, assistant_
         json.dumps(records, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+
+
+def summarize_turn_steps(steps):
+    lines = []
+    for step in steps:
+        output = step.get("output", [])
+        calls = {
+            item["call_id"]: item
+            for item in output
+            if item.get("type") == "function_call" and item.get("call_id")
+        }
+        results = {
+            item["call_id"]: item.get("output", "")
+            for item in output
+            if item.get("type") == "function_call_output" and item.get("call_id")
+        }
+        for call_id, call in calls.items():
+            name = call.get("name", "unknown")
+            arguments = call.get("arguments", "{}")
+            result = truncate_text(results.get(call_id, ""), MAX_TOOL_SUMMARY_OUTPUT_CHARS)
+            lines.append(f"- {name}({arguments}): {result}")
+
+    if not lines:
+        return ""
+    return "Tool summary from the previous turn:\n" + "\n".join(lines)
+
+
+def truncate_text(text, max_chars):
+    compact = " ".join(str(text).split())
+    if len(compact) <= max_chars:
+        return compact
+    return compact[:max_chars] + "..."
 
 
 def extract_turn_user_input(agent_input):
