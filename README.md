@@ -16,6 +16,10 @@ current workspace:
 
 File tools are limited to the directory where you start the CLI.
 
+Before each tool call, the CLI prints a concise user-facing rationale and the
+selected action. It can use an API reasoning summary as a fallback, but does
+not expose the model's raw chain-of-thought.
+
 The prompt uses `prompt_toolkit`, so deletion, cursor movement, and command
 history work like a normal interactive shell.
 

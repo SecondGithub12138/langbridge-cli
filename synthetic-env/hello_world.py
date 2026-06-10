@@ -4,6 +4,7 @@ def main() -> None:
     print("Hello, New Jersey from synthetic-env!")
     print("hello new jersey")
     print("hello nyc")
+    print("hello california")
 
 
 if __name__ == "__main__":
