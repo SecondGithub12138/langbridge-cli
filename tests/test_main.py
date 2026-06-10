@@ -1,4 +1,5 @@
-from langbridge_cli.main import SYSTEM_PROMPT, extract_reasoning_summaries, print_step_trace
+from langbridge_cli.parse import extract_reasoning_summaries, print_step_trace
+from langbridge_cli.prompt import SYSTEM_PROMPT
 
 
 def test_system_prompt_includes_karpathy_guidelines():

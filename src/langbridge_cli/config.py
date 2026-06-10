@@ -1,0 +1,34 @@
+import getpass
+import json
+from pathlib import Path
+
+
+API_URL = "https://api.openai.com/v1/responses"
+DEFAULT_MODEL = "gpt-5.1-codex"
+CONFIG_DIR = Path.home() / ".langbridge"
+CONFIG_PATH = CONFIG_DIR / "config.json"
+HISTORY_PATH = CONFIG_DIR / "history"
+MAX_AGENT_STEPS = 5
+MAX_TOOL_SUMMARY_OUTPUT_CHARS = 300
+MAX_SESSION_CHOICES = 10
+MAX_SESSION_SUMMARY_INPUT_CHARS = 4_000
+WORKSPACE_ROOT = Path.cwd().resolve()
+RUNS_DIR = WORKSPACE_ROOT / "session-history"
+WRITE_TOOLS = {"create_file", "edit_file", "install_python_packages"}
+
+
+def load_api_key():
+    import os
+
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if api_key:
+        return api_key
+
+    if CONFIG_PATH.exists():
+        return json.loads(CONFIG_PATH.read_text())["api_key"]
+
+    api_key = getpass.getpass("Enter Codex API key: ")
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CONFIG_PATH.write_text(json.dumps({"api_key": api_key}, indent=2))
+    CONFIG_PATH.chmod(0o600)
+    return api_key
