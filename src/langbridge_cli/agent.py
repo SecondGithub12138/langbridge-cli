@@ -158,7 +158,7 @@ def append_pm_l3_review(api_key, model, arguments, l4_output, trace_sink=None, r
     if not l4_output.startswith("L4_STATUS: READY_FOR_REVIEW"):
         return l4_output
 
-    from langbridge_cli.multi_agent import l3_review_passed, l4_ready_for_review
+    from langbridge_cli.multi_agent import l3_review_passed, l4_pushed_back, l4_ready_for_review
 
     task = arguments.get("task", "")
     context = arguments.get("context", "")
@@ -175,13 +175,75 @@ def append_pm_l3_review(api_key, model, arguments, l4_output, trace_sink=None, r
             return pm_review_result(l4_report, l3_report, "OK")
         append_worklog_entry(run_log_path, "L3 test engineer", l3_report, "concern exist")
 
-        l4_report = run_l4_fix(api_key, model, task, context, l3_report, trace_sink, run_log_path, turn_id, approval_callback)
+        disputed_impl = l4_report
+        l4_response = run_l4_fix(api_key, model, task, context, l3_report, trace_sink, run_log_path, turn_id, approval_callback)
+        if l4_pushed_back(l4_response):
+            append_worklog_entry(run_log_path, "L4 engineer", l4_response, "push back")
+            return resolve_push_back(api_key, model, task, context, disputed_impl, l4_response, l3_report, trace_sink, run_log_path, turn_id)
+        l4_report = l4_response
         if not l4_ready_for_review(l4_report):
             append_worklog_entry(run_log_path, "L4 engineer", l4_report, "needs pm")
             return pm_review_result(l4_report, l3_report, "NEEDS_WORK")
         append_worklog_entry(run_log_path, "L4 engineer", l4_report, "ready")
 
     return pm_review_result(l4_report, l3_report, "NEEDS_WORK")
+
+
+def resolve_push_back(api_key, model, task, context, disputed_impl, l4_push_back, prior_l3_report, trace_sink, run_log_path, turn_id):
+    from langbridge_cli.multi_agent import l3_review_passed
+
+    rejudge = run_l3_review(api_key, model, task, push_back_rejudge_context(context, disputed_impl, l4_push_back, prior_l3_report), trace_sink, run_log_path, turn_id)
+    if l3_review_passed(rejudge):
+        append_worklog_entry(run_log_path, "L3 test engineer", rejudge, "pass")
+        return pm_review_result(disputed_impl, rejudge, "OK")
+    append_worklog_entry(run_log_path, "L3 test engineer", rejudge, "push back")
+
+    jury_pass, jury_summary = run_dispute_jury(api_key, model, task, context, disputed_impl, trace_sink, run_log_path, turn_id)
+    append_worklog_entry(run_log_path, "Dispute jury", jury_summary, "pass" if jury_pass else "failure")
+    return pm_review_result(disputed_impl, jury_summary, "OK" if jury_pass else "NEEDS_WORK")
+
+
+def run_dispute_jury(api_key, model, task, context, l4_report, trace_sink, run_log_path, turn_id):
+    from langbridge_cli.multi_agent import l3_review_passed
+
+    reports = [
+        run_l3_review(api_key, model, task, juror_context(context, l4_report), trace_sink, run_log_path, turn_id)
+        for _ in range(2)
+    ]
+    jury_pass = all(l3_review_passed(report) for report in reports)
+    return jury_pass, format_jury_summary(reports, jury_pass)
+
+
+def push_back_rejudge_context(context, disputed_impl, l4_push_back, prior_l3_report):
+    parts = []
+    if context:
+        parts.append(context)
+    parts.append("L4 pushed back on your review instead of changing the code.")
+    parts.append(f"Your prior review:\n{prior_l3_report}")
+    parts.append(f"L4 implementation under review:\n{disputed_impl}")
+    parts.append(f"L4 push-back rationale:\n{l4_push_back}")
+    parts.append(
+        "Re-judge honestly. If the push-back is right, concede and return PASS. "
+        "If it is wrong, insist with NEEDS_WORK or FAIL; an independent jury will settle it."
+    )
+    return "\n\n".join(parts)
+
+
+def juror_context(context, l4_report):
+    parts = []
+    if context:
+        parts.append(context)
+    parts.append("You are an independent juror. Verify the L4 implementation on its own merits and vote PASS or FAIL.")
+    parts.append(f"L4 implementation to verify:\n{l4_report}")
+    return "\n\n".join(parts)
+
+
+def format_jury_summary(reports, jury_pass):
+    lines = [f"DISPUTE_JURY_RESULT: {'PASS' if jury_pass else 'FAIL'}", ""]
+    for index, report in enumerate(reports, 1):
+        lines.append(f"Juror {index}:\n{report}")
+        lines.append("")
+    return "\n".join(lines).strip()
 
 
 def run_l3_review(api_key, model, task, l3_context, trace_sink, run_log_path, turn_id):

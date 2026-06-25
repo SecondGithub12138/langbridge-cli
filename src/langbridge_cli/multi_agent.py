@@ -114,6 +114,11 @@ def l4_blocked(report):
     return first_line == "l4_status: blocked"
 
 
+def l4_pushed_back(report):
+    first_line = report.strip().splitlines()[0].strip().lower() if report.strip() else ""
+    return first_line == "l4_status: push_back"
+
+
 def run_specialist_agent(
     api_key,
     model,

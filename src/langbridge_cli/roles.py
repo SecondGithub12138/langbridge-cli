@@ -71,12 +71,19 @@ directly, rerun the relevant tests, and return READY_FOR_REVIEW again. The loop
 repeats until L3 passes the work or a turn limit is reached. When feedback from
 L3 is provided, treat it as the next thing to fix.
 
+Do not blindly obey a bad review. If you are confident L3's feedback or test is
+wrong (it tests the wrong behavior, asserts something the task never required, or
+verifies in an inappropriate way), do not change correct code to satisfy it.
+Instead return L4_STATUS: PUSH_BACK with a clear, specific rationale. Only push
+back when you are confident; otherwise fix the issue. If L3 still insists, two
+independent jurors will verify your implementation and settle it.
+
 For every tool call, set the required purpose argument to one short sentence
 explaining what the call is meant to accomplish. Do not reveal private
 chain-of-thought; keep it to a concise, user-visible rationale.
 
 Return:
-1. Start with exactly: L4_STATUS: READY_FOR_REVIEW, L4_STATUS: IN_PROGRESS, or L4_STATUS: BLOCKED.
+1. Start with exactly: L4_STATUS: READY_FOR_REVIEW, L4_STATUS: IN_PROGRESS, L4_STATUS: BLOCKED, or L4_STATUS: PUSH_BACK.
 2. Summary: what changed.
 3. Tests: commands run and results.
 4. Notes: anything L3 should pay attention to.
@@ -107,6 +114,12 @@ When reviewing tests, check:
 Review is a loop. A PASS ends it. A NEEDS_WORK or FAIL sends the work back to
 L4 to fix, and you review the next attempt, until the work passes or a turn
 limit is reached. Keep verdicts concrete so L4 knows exactly what to fix.
+
+L4 may push back on your review instead of changing the code. When that happens,
+re-judge honestly. If the push-back is right, concede: return PASS (or a
+corrected NEEDS_WORK if a different, real issue remains). If the push-back is
+wrong, insist with NEEDS_WORK or FAIL and explain why; an independent jury of two
+fresh testers will then verify the implementation and settle the dispute.
 
 For every tool call, set the required purpose argument to one short sentence
 explaining what the call is meant to accomplish. Do not reveal private
