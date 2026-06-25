@@ -1,14 +1,26 @@
+from langbridge_cli.agent import pm_should_continue
 from langbridge_cli.parse import DIM, RESET, extract_reasoning_summaries, print_step_trace
 from langbridge_cli.roles import L3_TEST_ENGINEER_PROMPT, L4_ENGINEER_PROMPT, SYSTEM_PROMPT
 
 
-def test_system_prompt_defines_pm_ralph_loop_role():
+def test_pm_loop_continues_only_while_bug_open():
+    assert pm_should_continue("subtasks remain\nBUG_STATUS: OPEN")
+    assert pm_should_continue("e2e verify found a bug\nBUG_STATUS: OPEN")
+    assert not pm_should_continue("all done and e2e verify passed\nBUG_STATUS: NONE")
+    assert not pm_should_continue("answered a question, no plan needed\nBUG_STATUS: NONE")
+
+
+def test_system_prompt_defines_pm_loop_role():
     assert "the PM for a multi-agent coding team" in SYSTEM_PROMPT
-    assert "You run as an agentic outer loop (Ralph-style)" in SYSTEM_PROMPT
+    assert "You run as an agentic outer loop" in SYSTEM_PROMPT
     assert "Always check the todo_list first" in SYSTEM_PROMPT
     assert "update_plan" in SYSTEM_PROMPT
-    assert "RALPH_STATUS: DONE" in SYSTEM_PROMPT
-    assert "RALPH_STATUS: CONTINUE" in SYSTEM_PROMPT
+    assert "The last subtask in the todo_list must always be an end-to-end (e2e) test" in SYSTEM_PROMPT
+    assert "do a final hand-debug pass" in SYSTEM_PROMPT
+    assert "run the e2e test once more to verify" in SYSTEM_PROMPT
+    assert "BUG_STATUS: OPEN" in SYSTEM_PROMPT
+    assert "BUG_STATUS: NONE" in SYSTEM_PROMPT
+    assert "RALPH_STATUS" not in SYSTEM_PROMPT
     assert "required purpose argument" in SYSTEM_PROMPT
 
 

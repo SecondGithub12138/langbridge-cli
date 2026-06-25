@@ -11,8 +11,8 @@ from langbridge_cli.config import (
     MAX_AGENT_STEPS,
     MAX_L4_L3_SECONDS,
     MAX_L4_L3_TURNS,
-    MAX_RALPH_LOOPS,
-    MAX_RALPH_SECONDS,
+    MAX_PM_LOOPS,
+    MAX_PM_SECONDS,
     WRITE_TOOLS,
 )
 from langbridge_cli.debug import print_llm_request, print_llm_response
@@ -36,7 +36,7 @@ from langbridge_cli.worklog import append_worklog_entry, start_worklog
 from langbridge_cli.limits import now, over_context_budget, over_time_budget
 
 
-def run_ralph_loop(
+def run_pm_loop(
     api_key,
     model,
     target,
@@ -48,12 +48,12 @@ def run_ralph_loop(
 ):
     finished = ""
     start_time = now()
-    for _ in range(MAX_RALPH_LOOPS):
-        if over_time_budget(start_time, MAX_RALPH_SECONDS):
+    for _ in range(MAX_PM_LOOPS):
+        if over_time_budget(start_time, MAX_PM_SECONDS):
             break
         round_input = [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": ralph_round_prompt(target, read_todo_list())},
+            {"role": "user", "content": pm_round_prompt(target, read_todo_list())},
         ]
         finished = run_agent(
             api_key,
@@ -65,12 +65,12 @@ def run_ralph_loop(
             print_reply=print_reply,
             approval_callback=approval_callback,
         )
-        if not ralph_should_continue(finished):
+        if not pm_should_continue(finished):
             break
     return finished
 
 
-def ralph_round_prompt(target, todo_list):
+def pm_round_prompt(target, todo_list):
     parts = [f"Task from the user:\n{target}"]
     if todo_list:
         parts.append(f"Current todo_list:\n{todo_list}")
@@ -79,11 +79,11 @@ def ralph_round_prompt(target, todo_list):
     return "\n\n".join(parts)
 
 
-def ralph_should_continue(finished):
+def pm_should_continue(finished):
     for line in reversed(finished.strip().splitlines()):
         stripped = line.strip()
         if stripped:
-            return stripped.upper() == "RALPH_STATUS: CONTINUE"
+            return stripped.upper() == "BUG_STATUS: OPEN"
     return False
 
 

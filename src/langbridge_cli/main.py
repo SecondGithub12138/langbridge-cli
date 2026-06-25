@@ -8,7 +8,7 @@ from prompt_toolkit.history import FileHistory
 if __package__ in (None, ""):
     sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from langbridge_cli.agent import run_ralph_loop
+from langbridge_cli.agent import run_pm_loop
 from langbridge_cli.config import (
     CONFIG_DIR,
     DEFAULT_MODEL,
@@ -60,7 +60,7 @@ def main():
             break
 
         turn_id += 1
-        run_ralph_loop(api_key, model, text, run_log_path, turn_id)
+        run_pm_loop(api_key, model, text, run_log_path, turn_id)
         write_session_summary(api_key, model, run_log_path)
 
 
