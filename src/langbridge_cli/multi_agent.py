@@ -10,7 +10,7 @@ from langbridge_cli.config import (
 )
 from langbridge_cli.debug import print_llm_request, print_llm_response
 from langbridge_cli.parse import extract_output_text, print_step_trace
-from langbridge_cli.roles import L3_TEST_ENGINEER_PROMPT, L4_ENGINEER_PROMPT
+from langbridge_cli.roles import L3_TEST_ENGINEER_PROMPT, L4_ENGINEER_PROMPT, L5_ENGINEER_PROMPT
 from langbridge_cli.tool_schema import strip_tool_purpose, with_tool_purpose
 from langbridge_cli.tools import execution, filesystem, testing
 from langbridge_cli.trajectory import (
@@ -19,6 +19,7 @@ from langbridge_cli.trajectory import (
     write_trajectory_step,
 )
 from langbridge_cli.limits import now, over_context_budget, over_time_budget
+from langbridge_cli import control
 
 
 L3_TOOL_NAMES = {"list_dir", "find_files", "read_file", "search_files", "run_tests"}
@@ -56,6 +57,11 @@ L4_TOOLS = {
 }
 L4_WRITE_TOOLS = {"create_file", "delete_file", "edit_file"}
 
+# L5 codes and tests just like L4, so it shares L4's tool set and write tools.
+L5_TOOL_SCHEMAS = L4_TOOL_SCHEMAS
+L5_TOOLS = L4_TOOLS
+L5_WRITE_TOOLS = L4_WRITE_TOOLS
+
 
 def run_l3_test_engineer(api_key, model, task, context="", trace_sink=None, run_log_path=None, turn_id=None):
     return run_specialist_agent(
@@ -81,6 +87,22 @@ def run_l4_engineer(api_key, model, task, context="", feedback="", trace_sink=No
         L4_TOOL_SCHEMAS,
         L4_TOOLS,
         "L4 engineer",
+        trace_sink=trace_sink,
+        approval_callback=approval_callback,
+        run_log_path=run_log_path,
+        turn_id=turn_id,
+    )
+
+
+def run_l5_engineer(api_key, model, task, context="", feedback="", trace_sink=None, approval_callback=None, run_log_path=None, turn_id=None):
+    return run_specialist_agent(
+        api_key,
+        model,
+        L5_ENGINEER_PROMPT,
+        l4_user_prompt(task, context, feedback),
+        L5_TOOL_SCHEMAS,
+        L5_TOOLS,
+        "L5 engineer",
         trace_sink=trace_sink,
         approval_callback=approval_callback,
         run_log_path=run_log_path,
@@ -124,6 +146,16 @@ def l4_pushed_back(report):
     return first_line == "l4_status: push_back"
 
 
+def l5_ready_for_review(report):
+    first_line = report.strip().splitlines()[0].strip().lower() if report.strip() else ""
+    return first_line == "l5_status: ready_for_review"
+
+
+def l5_pushed_back(report):
+    first_line = report.strip().splitlines()[0].strip().lower() if report.strip() else ""
+    return first_line == "l5_status: push_back"
+
+
 def run_specialist_agent(
     api_key,
     model,
@@ -145,6 +177,7 @@ def run_specialist_agent(
 
     start_time = now()
     for step in range(MAX_SPECIALIST_AGENT_STEPS):
+        control.checkpoint()
         if over_time_budget(start_time, MAX_SPECIALIST_SECONDS):
             report = stopped_report(label, "ran out of time", tool_history)
             write_trajectory_finish(run_log_path, label, turn_id, report)
@@ -153,7 +186,9 @@ def run_specialist_agent(
             report = stopped_report(label, "exceeded the context budget", tool_history)
             write_trajectory_finish(run_log_path, label, turn_id, report)
             return report
-        response = create_specialist_response(api_key, model, messages, tool_schemas, label)
+        response = control.run_interruptible(
+            lambda: create_specialist_response(api_key, model, messages, tool_schemas, label)
+        )
         output = response.get("output", [])
         tool_calls = [item for item in output if item.get("type") == "function_call"]
         if tool_calls:
@@ -202,7 +237,8 @@ def run_specialist_tool_call(call, tools, label, approval_callback=None):
         arguments = strip_tool_purpose(json.loads(call.get("arguments") or "{}"))
         if name not in tools:
             raise ValueError(f"Unknown {label} tool: {name}")
-        if label == "L4 engineer" and name in L4_WRITE_TOOLS and not approve_l4_tool_write(
+        if label in ("L4 engineer", "L5 engineer") and name in L4_WRITE_TOOLS and not approve_l4_tool_write(
+            label,
             name,
             arguments,
             approval_callback,
@@ -215,9 +251,9 @@ def run_specialist_tool_call(call, tools, label, approval_callback=None):
     return {"type": "function_call_output", "call_id": call_id, "output": output}
 
 
-def approve_l4_tool_write(name, arguments, approval_callback=None):
+def approve_l4_tool_write(label, name, arguments, approval_callback=None):
     if approval_callback is not None:
-        return approval_callback("L4 engineer", name, arguments)
+        return approval_callback(label, name, arguments)
     return approve_l4_write_tool(name, arguments)
 
 
@@ -229,6 +265,8 @@ def stopped_report(label, reason, tool_history):
     header = f"{label} stopped because it {reason}."
     if label == "L4 engineer":
         header = "L4_STATUS: IN_PROGRESS\nSummary: " + header
+    elif label == "L5 engineer":
+        header = "L5_STATUS: IN_PROGRESS\nSummary: " + header
     if not tool_history:
         return header
 

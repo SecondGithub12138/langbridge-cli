@@ -11,7 +11,7 @@ TOOL_SCHEMAS = with_tool_purpose(
 )
 TOOLS = filesystem.TOOLS | testing.TOOLS | packages.TOOLS | execution.TOOLS | agents.TOOLS | plan.TOOLS
 
-MAIN_TOOL_NAMES = {"list_dir", "find_files", "read_file", "search_files", "execute_program", "ask_l4_engineer", "update_plan"}
+MAIN_TOOL_NAMES = {"list_dir", "find_files", "read_file", "search_files", "execute_program", "ask_l4_engineer", "ask_l5_engineer", "update_plan"}
 MAIN_TOOL_SCHEMAS = with_tool_purpose(
     [
         schema

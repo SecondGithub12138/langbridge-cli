@@ -12,6 +12,9 @@ MAX_AGENT_STEPS = 50
 MAX_SPECIALIST_AGENT_STEPS = 30
 MAX_PM_LOOPS = 20
 MAX_L4_L3_TURNS = 5
+# Hard cap on Ralph turns for one HARD component_task handled by L5: each turn
+# conquers one technical_sub_task. Stops a component from looping forever.
+MAX_L5_RALPH_TURNS = 8
 # Per-loop wall-clock budgets (seconds). Generous on purpose: they exist to stop
 # a runaway loop, not to cut short a normal run.
 MAX_PM_SECONDS = 3600
@@ -31,12 +34,16 @@ STALE_TOOL_OUTPUT_CHARS = 500
 WORKSPACE_ROOT = Path.cwd().resolve()
 RUNS_DIR = Path(os.environ.get("LANGBRIDGE_RUNS_DIR", WORKSPACE_ROOT / "session-history"))
 TODO_LIST_PATH = Path(os.environ.get("LANGBRIDGE_TODO_LIST_PATH", WORKSPACE_ROOT / "todo_list.md"))
+# One component_task_plan file per HARD component_task; uniquely named so the next
+# L5 Ralph turn can find the plan it left behind and continue where it stopped.
+COMPONENT_PLAN_DIR = Path(os.environ.get("LANGBRIDGE_COMPONENT_PLAN_DIR", WORKSPACE_ROOT / "component-plans"))
 WRITE_TOOLS = {
     "create_file",
     "delete_file",
     "edit_file",
     "install_python_packages",
     "ask_l4_engineer",
+    "ask_l5_engineer",
 }
 
 
