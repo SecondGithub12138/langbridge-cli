@@ -8,20 +8,13 @@ from prompt_toolkit.history import FileHistory
 if __package__ in (None, ""):
     sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from langbridge_cli.agent import run_agent
+from langbridge_cli.agent import run_ralph_loop
 from langbridge_cli.config import (
-    COMPACT_WHEN_TOKENS_OVER,
     CONFIG_DIR,
     DEFAULT_MODEL,
     HISTORY_PATH,
     load_api_key,
 )
-from langbridge_cli.context import (
-    estimate_tokens,
-    restore_compacted_session_messages,
-    restore_session_messages,
-)
-from langbridge_cli.prompt import SYSTEM_PROMPT
 from langbridge_cli.session import (
     create_run_log_path,
     last_turn_id,
@@ -42,16 +35,9 @@ def main():
     model = os.environ.get("LANGBRIDGE_MODEL", DEFAULT_MODEL)
     session = create_prompt_session() if sys.stdin.isatty() else None
 
-    messages = [
-        {
-            "role": "system",
-            "content": SYSTEM_PROMPT,
-        }
-    ]
     previous_session = select_previous_session(session)
     if previous_session is not None:
         records = read_session_records(previous_session)
-        messages = restore_session_messages(records) or messages
         run_log_path = previous_session
         turn_id = last_turn_id(records)
     else:
@@ -74,11 +60,7 @@ def main():
             break
 
         turn_id += 1
-        if estimate_tokens(messages) > COMPACT_WHEN_TOKENS_OVER:
-            messages = restore_compacted_session_messages(read_session_records(run_log_path))
-            print("(compacted older context to stay under the token budget)")
-        messages.append({"role": "user", "content": text})
-        run_agent(api_key, model, messages, run_log_path, turn_id)
+        run_ralph_loop(api_key, model, text, run_log_path, turn_id)
         write_session_summary(api_key, model, run_log_path)
 
 

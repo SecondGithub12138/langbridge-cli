@@ -5,8 +5,10 @@ import sys
 
 from openai import OpenAI, OpenAIError
 
-from langbridge_cli.config import MAX_AGENT_STEPS, WRITE_TOOLS
+from langbridge_cli.config import MAX_AGENT_STEPS, MAX_RALPH_LOOPS, WRITE_TOOLS
 from langbridge_cli.debug import print_llm_request, print_llm_response
+from langbridge_cli.prompt import SYSTEM_PROMPT
+from langbridge_cli.tools.plan import read_handover
 from langbridge_cli.logging import (
     write_finish_log,
     write_input_log,
@@ -16,6 +18,54 @@ from langbridge_cli.logging import (
 from langbridge_cli.parse import extract_output_text, print_step_trace
 from langbridge_cli.tool_schema import strip_tool_purpose
 from langbridge_cli.tools import MAIN_TOOL_SCHEMAS, MAIN_TOOLS
+
+
+def run_ralph_loop(
+    api_key,
+    model,
+    target,
+    run_log_path,
+    turn_id,
+    trace_sink=None,
+    print_reply=True,
+    approval_callback=None,
+):
+    finished = ""
+    for _ in range(MAX_RALPH_LOOPS):
+        round_input = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": ralph_round_prompt(target, read_handover())},
+        ]
+        finished = run_agent(
+            api_key,
+            model,
+            round_input,
+            run_log_path,
+            turn_id,
+            trace_sink=trace_sink,
+            print_reply=print_reply,
+            approval_callback=approval_callback,
+        )
+        if not ralph_should_continue(finished):
+            break
+    return finished
+
+
+def ralph_round_prompt(target, handover):
+    parts = [f"Task from the user:\n{target}"]
+    if handover:
+        parts.append(f"Current handover plan:\n{handover}")
+    else:
+        parts.append("There is no handover plan yet.")
+    return "\n\n".join(parts)
+
+
+def ralph_should_continue(finished):
+    for line in reversed(finished.strip().splitlines()):
+        stripped = line.strip()
+        if stripped:
+            return stripped.upper() == "RALPH_STATUS: CONTINUE"
+    return False
 
 
 def run_agent(

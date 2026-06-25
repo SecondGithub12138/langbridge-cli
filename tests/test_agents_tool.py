@@ -12,13 +12,14 @@ def test_l3_test_engineer_tool_is_registered():
     assert "ask_l4_engineer" in TOOLS
     assert any(schema["name"] == "ask_l4_engineer" for schema in TOOL_SCHEMAS)
     assert any(schema["name"] == "delete_file" for schema in L4_TOOL_SCHEMAS)
-    assert set(MAIN_TOOLS) == {"list_dir", "find_files", "read_file", "search_files", "ask_l4_engineer"}
+    assert set(MAIN_TOOLS) == {"list_dir", "find_files", "read_file", "search_files", "ask_l4_engineer", "update_plan"}
     assert [schema["name"] for schema in MAIN_TOOL_SCHEMAS] == [
         "list_dir",
         "find_files",
         "read_file",
         "search_files",
         "ask_l4_engineer",
+        "update_plan",
     ]
     for schema in MAIN_TOOL_SCHEMAS + L4_TOOL_SCHEMAS:
         assert "purpose" in schema["parameters"]["properties"]

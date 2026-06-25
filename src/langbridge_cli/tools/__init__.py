@@ -1,4 +1,4 @@
-from langbridge_cli.tools import agents, execution, filesystem, packages, testing
+from langbridge_cli.tools import agents, execution, filesystem, packages, plan, testing
 from langbridge_cli.tool_schema import with_tool_purpose
 
 TOOL_SCHEMAS = with_tool_purpose(
@@ -7,20 +7,21 @@ TOOL_SCHEMAS = with_tool_purpose(
     + packages.TOOL_SCHEMAS
     + execution.TOOL_SCHEMAS
     + agents.TOOL_SCHEMAS
+    + plan.TOOL_SCHEMAS
 )
-TOOLS = filesystem.TOOLS | testing.TOOLS | packages.TOOLS | execution.TOOLS | agents.TOOLS
+TOOLS = filesystem.TOOLS | testing.TOOLS | packages.TOOLS | execution.TOOLS | agents.TOOLS | plan.TOOLS
 
-MAIN_TOOL_NAMES = {"list_dir", "find_files", "read_file", "search_files", "ask_l4_engineer"}
+MAIN_TOOL_NAMES = {"list_dir", "find_files", "read_file", "search_files", "ask_l4_engineer", "update_plan"}
 MAIN_TOOL_SCHEMAS = with_tool_purpose(
     [
         schema
-        for schema in filesystem.TOOL_SCHEMAS + agents.TOOL_SCHEMAS
+        for schema in filesystem.TOOL_SCHEMAS + agents.TOOL_SCHEMAS + plan.TOOL_SCHEMAS
         if schema["name"] in MAIN_TOOL_NAMES
     ]
 )
 MAIN_TOOLS = {
     name: tool
-    for name, tool in (filesystem.TOOLS | agents.TOOLS).items()
+    for name, tool in (filesystem.TOOLS | agents.TOOLS | plan.TOOLS).items()
     if name in MAIN_TOOL_NAMES
 }
 
