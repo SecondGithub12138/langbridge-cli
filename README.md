@@ -44,6 +44,64 @@ PM agentic loop                       (cap: MAX_AGENT_STEPS)
                               └─ NEEDS_WORK ──► feedback back to L4
 ```
 
+### Outer-loop flavors: REPL, Ralph, and agentic
+
+An "outer loop" is the loop that decides what the next task is. The key
+question is: **who picks the next input each round?** There are three flavors.
+
+- **Human-driven (REPL):** a person types the next message each round. This is
+  the LangBridge CLI today — the `while True` prompt loop in `main.py` waits for
+  you. The agent does not choose what comes next; you do.
+- **Dumb agent-driven (vanilla Ralph loop):** a fixed script re-feeds the *same*
+  prompt every round, with no human and no decision in the loop itself.
+- **Agentic:** an LLM reads the current state and decides the next task each
+  round. The outer loop itself becomes "smart."
+
+### How a vanilla Ralph loop actually works
+
+The classic Ralph loop is famously dumb — roughly:
+
+```bash
+while true; do
+  cat prompt.md | agent
+done
+```
+
+The trick is that progress does **not** live in the prompt; it lives in files.
+
+- The **prompt stays the same** every round. It never names a task. It says
+  something like: *"Read the plan and the code, do the next unfinished task,
+  then update the plan."*
+- The **files on disk change** every round. The plan file and the code are the
+  real memory.
+- Each round is usually a **fresh agent with an empty context window**. It
+  "remembers" only by re-reading the files. This sidesteps context limits and
+  keeps the agent sharp on long jobs.
+
+So the loop makes progress because the notebook (files) grows, not because the
+instruction changes. On round 1 there is no plan, so the agent writes one; on
+later rounds the plan exists, so the agent continues it. The branching comes
+from the state of the files, not the prompt.
+
+### Stop signals: a dumb loop cannot read prose
+
+A shell loop cannot understand "I'm finished" written in English. It needs a
+**machine-checkable signal** to know when to quit — for example a sentinel
+string, an exit code, a marker file, an empty to-do list, or passing tests.
+Pure Ralph often skips this entirely and just runs until a human stops it.
+
+### How LangBridge differs from vanilla Ralph
+
+LangBridge is an engineered, multi-agent take on the same idea:
+
+- **A dedicated planner, not "whoever runs first."** The PM owns planning and
+  routes scoped work to L4, instead of one generic agent bootstrapping the plan.
+- **Checkable status tokens instead of free text.** Reports start with fixed
+  lines like `L4_STATUS: READY_FOR_REVIEW` and the runtime emits
+  `PM_REVIEW_STATUS: OK` / `NEEDS_WORK`, so a loop can act on them deterministically.
+- **Bounded loops.** `MAX_AGENT_STEPS` and `MAX_SPECIALIST_AGENT_STEPS` stop the
+  loops from spinning forever — the guard a bare `while true` lacks.
+
 The CLI can call local tools in the current workspace:
 
 - `list_dir`: list files and directories
@@ -86,12 +144,74 @@ We are hiring more agent roles. Current openings:
 - **Designer**: designs good UI interfaces and provides front-end specs.
 - **TL / L5 senior engineer**: plans the technical approach from the PM's product
   definition, decides the components required, implements the framework or MVP,
-  and adds end-to-end tests.
+  and adds end-to-end tests. See the [Roadmap](#l5-senior-engineer-an-agentic-ralph-layer-between-pm-and-l4)
+  for the planned L5 design.
 - **PM**: cross-functional collaboration with design, data science, product, and
   marketing.
 - **L6 engineer**: large-scale and high-concurrency system design,
   implementation, and cross-team collaboration with other coding-agent teams.
 - **Manager**: keeps agents aligned, unblocks work, and improves team execution.
+
+## Roadmap
+
+The next milestone turns LangBridge into a fuller PM-led team with an **L5
+senior engineer**, an explicit turn state machine, a neutral dispute jury, and
+clear escalation and recovery paths. The full design is captured in
+`synthetic-env/Thoughts.md`.
+
+### Roles and loops
+
+- **PM (outer loop):** breaks the `user_task` into a `todo_list` of
+  `component_task`s (product-level, not deeply technical), routes each to L4 or
+  L5, verifies the delivery, and marks progress. The **last `component_task` is
+  always an e2e test** for the whole product.
+- **L4:** implements a normal `component_task`.
+- **L5 (Ralph loop):** implements a hard `component_task` by divide-and-conquer.
+  It writes a `component_task_plan` (uniquely named per component) that splits
+  the work into `technical_sub_task`s; the **last one is always an integration
+  test**. Each Ralph turn re-runs a fresh L5 with the same prompt; the L5 reads
+  the plan and continues from the next unfinished sub-task. See
+  [Ralph loops](#outer-loop-flavors-repl-ralph-and-agentic).
+- **L3:** the tester, shared inside both the L4 and L5 loops.
+
+### Worklogs (the memory)
+
+Each L4/L5 loop keeps a `shared_worklog` (the L4↔L3 or L5↔L3 conversation) plus
+private `l4_worklog` / `l5_worklog` / `l3_worklog`. A worker reads its own log
+plus the shared log; L3 reads its own log plus the shared log.
+
+### Turn routing (a small state machine)
+
+Within a loop, exactly one side is active each turn, decided by the last token
+in `shared_worklog`:
+
+- empty or `concern exist` → **worker's turn** (implement / fix)
+- `ready` or `push back` → **L3's turn** (test / re-judge)
+
+Three tokens keep the loop going (`ready`, `concern exist`, `push back`) and two
+end it (`pass`, and a `failure` outcome).
+
+### Disputes: a neutral jury, not a self-judge
+
+When the worker posts `push back` and L3 thinks it is unreasonable, L3 does
+**not** decide alone — that would be judging a complaint about its own test.
+Instead a **jury of 2 fresh, independent testers** each writes its own tests and
+votes:
+
+- **Both vote yes** → `pass` (deliver, or mark the sub-task done).
+- **Otherwise** → `failure`.
+
+### Limits, escalation, and recovery
+
+- **Three limits per loop:** context length (for LLM loops), a wall-clock
+  timeout, and a max loop count. Whichever trips first ends the loop as a
+  `failure`.
+- **Escalation:** an L4 failure goes to the PM (retry or reassign to L5); an L5
+  failure goes to the PM (re-scope or re-plan the `component_task`). When the PM
+  exhausts its own limits, it reports a clear blocker to the user.
+- **Final check:** after all `component_task`s pass, if the project is runnable
+  the PM brings it up and debugs by hand. A bug found this way becomes a **new
+  `component_task`**; a clean run ships to the user.
 
 ## Run
 
