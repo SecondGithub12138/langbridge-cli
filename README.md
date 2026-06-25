@@ -6,6 +6,44 @@ LangBridge runs a PM-led coding-agent loop. The PM can inspect the workspace,
 delegate implementation to specialist agents, resume previous JSON session
 history, and compact older context when the conversation gets long.
 
+## Loop Engineering
+
+LangBridge is built around **loop engineering**: instead of a single one-shot
+model call, agents run in loops, and loops are nested inside loops. Each agent
+keeps thinking, calling tools, and reading results until it decides its job is
+done.
+
+There are two levels:
+
+- **Outer loop (PM):** The PM runs its own agentic loop. On each step it can
+  inspect the workspace or delegate work, read the result, and decide the next
+  move.
+- **Inner loop (L4 / L3):** When the PM delegates a task, that single delegation
+  is itself a full agentic loop. The L4 engineer reads files, edits code, runs
+  tests, fixes failures, and re-runs — many turns — before returning a report.
+  The same is true for the L3 test engineer.
+
+So one PM action can trigger an entire L4 or L3 run. An "agent tool" is a loop,
+not a single call.
+
+Both levels have safety brakes and quality controls:
+
+- **Step caps:** the PM loop is bounded by `MAX_AGENT_STEPS`; the specialist
+  loops are bounded by `MAX_SPECIALIST_AGENT_STEPS`. Neither can spin forever.
+- **Verification gate:** when L4 reports `READY_FOR_REVIEW`, the runtime
+  deterministically runs the L3 test engineer to verify the work before the PM
+  accepts it.
+- **Recovery path:** if L3 returns `NEEDS_WORK`, that feedback is routed back
+  into a fresh L4 run so the engineer can address it.
+
+```
+PM agentic loop                       (cap: MAX_AGENT_STEPS)
+  └─ ask_l4_engineer  ──►  L4 agentic loop   (cap: MAX_SPECIALIST_AGENT_STEPS)
+  └─ deterministic    ──►  L3 agentic loop   (cap: MAX_SPECIALIST_AGENT_STEPS)
+                              │
+                              └─ NEEDS_WORK ──► feedback back to L4
+```
+
 The CLI can call local tools in the current workspace:
 
 - `list_dir`: list files and directories
