@@ -162,12 +162,15 @@ def run_tool_call(call, api_key=None, model=None, trace_sink=None, approval_call
             raise ValueError(f"Unknown tool: {name}")
         if name in WRITE_TOOLS and not approve_write_tool(name, arguments, approval_callback):
             raise PermissionError(f"{name} was not approved")
-        tool_arguments = add_hidden_tool_context(MAIN_TOOLS[name], arguments, api_key, model, trace_sink, approval_callback, run_log_path, turn_id)
-        output = MAIN_TOOLS[name](**tool_arguments)
         if name == "ask_l4_engineer":
+            # The registered tool is just a placeholder; the living L4<->L3 loop runs here.
             output = run_l4_component(api_key, model, arguments, trace_sink, run_log_path, turn_id, approval_callback)
         elif name == "ask_l5_engineer":
+            # The registered tool is just a placeholder; the L5 component loop runs here.
             output = run_l5_component(api_key, model, arguments, trace_sink, run_log_path, turn_id, approval_callback)
+        else:
+            tool_arguments = add_hidden_tool_context(MAIN_TOOLS[name], arguments, api_key, model, trace_sink, approval_callback, run_log_path, turn_id)
+            output = MAIN_TOOLS[name](**tool_arguments)
     except Exception as error:
         output = f"Tool error: {error}"
 
