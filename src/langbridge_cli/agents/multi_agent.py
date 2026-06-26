@@ -334,4 +334,7 @@ def approve_l4_write_tool(name, arguments):
     print(f"\nApprove L4 write tool: {name}")
     print(json.dumps(arguments, ensure_ascii=False, indent=2))
     answer = input("Allow L4 to run this write tool? [y/N] ")
-    return answer.strip().lower() in {"y", "yes"}
+    if answer.strip().lower() in {"y", "yes"}:
+        return True
+    # Denying at the prompt aborts the whole turn and returns to the REPL.
+    raise control.TurnAborted(f"{name} was denied.")

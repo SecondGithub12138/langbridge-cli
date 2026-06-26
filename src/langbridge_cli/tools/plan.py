@@ -36,14 +36,29 @@ def tool(name):
     return register
 
 
+def todo_list_path(run_log_path=None):
+    """Per-session todo_list, so a brand-new session starts with a fresh one.
+
+    The todo_list lives next to the session's history file, keyed by the session
+    (run_log_path). A new session has no such file yet, so its context is empty.
+    Falls back to the configured global path when there is no active session
+    (e.g. unit tests).
+    """
+    if run_log_path is None:
+        return TODO_LIST_PATH
+    return run_log_path.with_name(f"{run_log_path.stem}.todo_list.md")
+
+
 @tool("update_plan")
-def update_plan(content):
-    TODO_LIST_PATH.parent.mkdir(parents=True, exist_ok=True)
-    TODO_LIST_PATH.write_text(content, encoding="utf-8")
-    return f"Updated todo_list ({len(content)} chars) at {TODO_LIST_PATH.name}."
+def update_plan(content, run_log_path=None):
+    path = todo_list_path(run_log_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    return f"Updated todo_list ({len(content)} chars) at {path.name}."
 
 
-def read_todo_list():
-    if not TODO_LIST_PATH.exists():
+def read_todo_list(run_log_path=None):
+    path = todo_list_path(run_log_path)
+    if not path.exists():
         return ""
-    return TODO_LIST_PATH.read_text(encoding="utf-8")
+    return path.read_text(encoding="utf-8")

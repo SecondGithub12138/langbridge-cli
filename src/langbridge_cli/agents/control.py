@@ -23,6 +23,14 @@ class StopRequested(BaseException):
     """
 
 
+class TurnAborted(StopRequested):
+    """Raised when the user denies an action at the terminal approval prompt.
+
+    Like a stop, it unwinds the whole turn instead of feeding a tool error back
+    to the model. The plain REPL catches it and waits for the next message.
+    """
+
+
 _resume_event = threading.Event()
 _resume_event.set()
 _stop_event = threading.Event()

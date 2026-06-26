@@ -5,14 +5,13 @@ An interactive coding-agent CLI backed by a Codex model.
 LangBridge runs a PM-led, multi-agent coding loop. The PM inspects the
 workspace, plans the work, and delegates implementation to specialist agents
 (an L4 feature engineer and an L5 senior engineer), each verified by an L3 test
-engineer. It can resume previous JSON session history and compacts older context
+engineer. It can resume previous session history and compacts older context
 when the conversation gets long.
 
-Start it (the Textual UI launches by default):
+Start it:
 
 ```bash
-uv run langbridge
-LANGBRIDGE_TERMINAL=1 uv run langbridge # plain terminal REPL
+uv run langbridge 
 ```
 
 ## Loop Engineering
@@ -57,67 +56,51 @@ PM agentic loop                          (caps: MAX_AGENT_STEPS, MAX_PM_LOOPS)
   └─ ask_l5_engineer ─► L5 Ralph loop            (cap: MAX_L5_RALPH_TURNS)
                           └─ per sub-task: L5 ⇄ L3 review  (same jury rules)
 ```
+## LangBridge Coding Team
 
-### Outer-loop flavors: REPL, Ralph, and agentic
+LangBridge is organized as a small coding-agent team. The current team has four
+active roles:
 
-An "outer loop" is the loop that decides what the next task is. The key
-question is: **who picks the next input each round?** There are three flavors.
+- **PM (outer loop)**: turns user needs into a `todo_list` of component-level
+  subtasks, routes each to L4 or L5, verifies the delivery, and tracks progress.
+- **L4 feature engineer**: implements a normal `component_task` and its focused
+  unit tests.
+- **L5 senior engineer**: takes a HARD `component_task`, plans it into
+  technical sub-tasks, and builds them one at a time (a Ralph loop).
+- **L3 test engineer**: verifies L4/L5 work — reviews code and test quality and
+  runs the tests. Shared inside both the L4 and L5 loops.
 
-- **Human-driven (REPL):** a person types the next message each round. This is
-  the LangBridge CLI today — the `while True` prompt loop in `main.py` waits for
-  you. The agent does not choose what comes next; you do.
-- **Dumb agent-driven (vanilla Ralph loop):** a fixed script re-feeds the *same*
-  prompt every round, with no human and no decision in the loop itself.
-- **Agentic:** an LLM reads the current state and decides the next task each
-  round. The outer loop itself becomes "smart."
+We are hiring more agent roles. Current openings:
+- **Designer**: UI design and front-end specs.
+- **PM (cross-functional)**: collaboration with design, data science, product,
+  and marketing.
+- **L6 engineer**: large-scale, high-concurrency system design and cross-team
+  collaboration with other coding-agent teams.
+- **Manager**: keeps agents aligned, unblocks work, and improves team execution.
 
-### How a vanilla Ralph loop actually works
+## How the team works
 
-The classic Ralph loop is famously dumb — roughly:
+The PM leads a multi-agent loop with machine-checkable status tokens. The original
+design notes are in `Thoughts.md`.
 
-```bash
-while true; do
-  cat prompt.md | agent
-done
-```
+### Roles and loops
 
-The trick is that progress does **not** live in the prompt; it lives in files.
+- **PM (outer loop):** breaks the `user_task` into a `todo_list` of
+  `component_task`s (product-level, not deeply technical), routes each to L4 or
+  L5, verifies the delivery, and marks progress. The **last `component_task` is
+  always an e2e test** for the whole product.
+- **L4:** implements a normal `component_task` and its tests.
+- **L5 (Ralph loop):** implements a HARD `component_task` by divide-and-conquer.
+  It writes a `component_task_plan` (one file per component) that splits the work
+  into `technical_sub_task`s; the **last one is always an integration test**.
+  Each Ralph turn spawns a fresh L5 that reads the plan and continues from the
+  next unfinished sub-task. 
+- **L3:** the tester, shared inside both the L4 and L5 review loops.
 
-- The **prompt stays the same** every round. It never names a task. It says
-  something like: *"Read the plan and the code, do the next unfinished task,
-  then update the plan."*
-- The **files on disk change** every round. The plan file and the code are the
-  real memory.
-- Each round is usually a **fresh agent with an empty context window**. It
-  "remembers" only by re-reading the files. This sidesteps context limits and
-  keeps the agent sharp on long jobs.
 
-So the loop makes progress because the notebook (files) grows, not because the
-instruction changes. On round 1 there is no plan, so the agent writes one; on
-later rounds the plan exists, so the agent continues it. The branching comes
-from the state of the files, not the prompt.
+### How LangBridge works
 
-### Stop signals: a dumb loop cannot read prose
-
-A shell loop cannot understand "I'm finished" written in English. It needs a
-**machine-checkable signal** to know when to quit — for example a sentinel
-string, an exit code, a marker file, an empty to-do list, or passing tests.
-Pure Ralph often skips this entirely and just runs until a human stops it.
-
-### How LangBridge differs from vanilla Ralph
-
-LangBridge is an engineered, multi-agent take on the same idea:
-
-- **A dedicated planner, not "whoever runs first."** The PM owns planning and
-  routes scoped work to L4 or L5, instead of one generic agent bootstrapping the
-  plan. (The L5 sub-task loop is itself a Ralph loop driven by a plan file.)
-- **Checkable status tokens instead of free text.** Reports start with fixed
-  lines like `L4_STATUS: READY_FOR_REVIEW` / `L5_STATUS: READY_FOR_REVIEW` and
-  the runtime emits `PM_REVIEW_STATUS: OK` / `NEEDS_WORK`, so a loop can act on
-  them deterministically.
-- **Bounded loops.** `MAX_AGENT_STEPS`, `MAX_SPECIALIST_AGENT_STEPS`,
-  `MAX_L4_L3_TURNS`, and `MAX_L5_RALPH_TURNS` stop the loops from spinning
-  forever — the guard a bare `while true` lacks.
+LangBridge is an engineered, multi-agent:
 
 The PM works read-only on the workspace and delegates all writes to specialists.
 PM tools:
@@ -152,49 +135,6 @@ history work like a normal interactive shell.
 Each CLI run writes readable JSON history under `agent-state/pm/session-history/`. On startup,
 you can resume a previous session or start a new one.
 
-## LangBridge Coding Team
-
-LangBridge is organized as a small coding-agent team. The current team has four
-active roles:
-
-- **PM (outer loop)**: turns user needs into a `todo_list` of component-level
-  subtasks, routes each to L4 or L5, verifies the delivery, and tracks progress.
-- **L4 feature engineer**: implements a normal `component_task` and its focused
-  unit tests.
-- **L5 senior engineer**: takes a HARD `component_task`, plans it into
-  technical sub-tasks, and builds them one at a time (a Ralph loop).
-- **L3 test engineer**: verifies L4/L5 work — reviews code and test quality and
-  runs the tests. Shared inside both the L4 and L5 loops.
-
-We are hiring more agent roles. Current openings:
-- **Designer**: UI design and front-end specs.
-- **PM (cross-functional)**: collaboration with design, data science, product,
-  and marketing.
-- **L6 engineer**: large-scale, high-concurrency system design and cross-team
-  collaboration with other coding-agent teams.
-- **Manager**: keeps agents aligned, unblocks work, and improves team execution.
-
-## How the team works
-
-The PM leads a multi-agent loop with machine-checkable status tokens, an in-loop
-L3 review, a neutral dispute jury, and clear escalation paths. The original
-design notes are in `Thoughts.md`.
-
-### Roles and loops
-
-- **PM (outer loop):** breaks the `user_task` into a `todo_list` of
-  `component_task`s (product-level, not deeply technical), routes each to L4 or
-  L5, verifies the delivery, and marks progress. The **last `component_task` is
-  always an e2e test** for the whole product.
-- **L4:** implements a normal `component_task` and its tests.
-- **L5 (Ralph loop):** implements a HARD `component_task` by divide-and-conquer.
-  It writes a `component_task_plan` (one file per component) that splits the work
-  into `technical_sub_task`s; the **last one is always an integration test**.
-  Each Ralph turn spawns a fresh L5 that reads the plan and continues from the
-  next unfinished sub-task. See
-  [Ralph loops](#outer-loop-flavors-repl-ralph-and-agentic).
-- **L3:** the tester, shared inside both the L4 and L5 review loops.
-
 ### Living agents vs. worklogs (memory)
 
 Within one loop an agent stays **alive**: an L4 (or L5, or L3) keeps its full
@@ -212,9 +152,9 @@ Worklogs are an audit/debug trail on disk, **not** the agents' working memory:
 - **Shared negotiation ledger** — `agent-state/l4/worklog/<run>/l34_share_<n>.md`
   (and `l5/.../l45_share_<n>.md`): the L4↔L3 (or L5↔L3) conversation. Each turn
   ends with a `WORKLOG_TOKEN`, which is what the loop routes on.
-- **PM state** — session history (`agent-state/pm/session-history/`), the
-  `todo_list` (`agent-state/pm/todo_list.md`), and L5 component plans
-  (`agent-state/l5/component-plans/`).
+- **Chat, task, component_task state** — session history (`agent-state/pm/session-history/`), the
+  per-session `todo_list` (`agent-state/pm/session-history/<run>.todo_list.md`, so a new
+  session starts fresh), and L5 component plans (`agent-state/l5/component-plans/`).
 
 ### Status tokens (machine-checkable, not prose)
 
@@ -272,22 +212,6 @@ uv run langbridge
 While developing locally, prefer `uv run langbridge` (editable install) so code
 changes take effect immediately. Use `uv sync --reinstall-package langbridge-cli
 --no-editable` only when you need a non-editable install.
-
-**Layout**:
-
-- **Welcome banner** (top): directory, current session, model, and version.
-- **Conversation**: your message is marked `✦` and the assistant reply `●`. While
-  the agent works, its current thinking shows on a single live line that updates
-  in place and clears when the reply arrives.
-- **Status bar** (bottom): `model · state · cwd · git branch` on the left, and a
-  **context-usage meter** `context X% (used/max)` on the right. The state shows
-  `ready`, `thinking`, `working`, `paused`, `waiting for approval`, or `stopping`.
-
-**Input box** (multi-line):
-
-- **Enter** sends the message; **Shift+Enter** inserts a newline.
-- Pasting keeps every line, so you can drop in a multi-paragraph task spec and it
-  is sent as one message (the old single-line box truncated paste to the first line).
 
 **Commands** (type in the prompt):
 

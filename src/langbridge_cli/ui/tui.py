@@ -1,4 +1,5 @@
 import os
+import re
 import subprocess
 import threading
 from pathlib import Path
@@ -10,7 +11,7 @@ from textual.containers import Horizontal
 from textual.widgets import RichLog, Static, TextArea
 
 from langbridge_cli.agents import control
-from langbridge_cli.agents.agent import run_agent
+from langbridge_cli.agents.agent import run_pm_loop
 from langbridge_cli.config import (
     COMPACT_WHEN_TOKENS_OVER,
     DEFAULT_MODEL,
@@ -35,16 +36,18 @@ YELLOW = "#e0af68"
 RED = "#f7768e"
 
 
+_BUG_STATUS_RE = re.compile(r"\s*BUG_STATUS:\s*[A-Za-z]+\s*$", re.IGNORECASE)
+
+
 def strip_bug_status(text):
-    """Drop the PM's trailing BUG_STATUS control line before showing the reply.
+    """Drop the PM's trailing BUG_STATUS control token before showing the reply.
 
     BUG_STATUS is a loop-control token the PM appends to every round; it drives
-    pm_should_continue, not the user, so it should not surface in the chat.
+    pm_should_continue, not the user, so it should not surface in the chat. The
+    PM sometimes puts it on its own line and sometimes inline after the reply,
+    so we strip it from the end either way.
     """
-    lines = text.rstrip().splitlines()
-    if lines and lines[-1].strip().upper().startswith("BUG_STATUS:"):
-        lines = lines[:-1]
-    return "\n".join(lines).rstrip()
+    return _BUG_STATUS_RE.sub("", text.rstrip()).rstrip()
 
 try:
     from importlib.metadata import PackageNotFoundError, version
@@ -314,17 +317,17 @@ class LangBridgeTui(App):
             self.messages = restore_compacted_session_messages(read_session_records(self.run_log_path))
             self.call_from_thread(self.add_chat_line, "(compacted older context to stay under the token budget)")
 
-        self.messages.append({"role": "user", "content": text})
         try:
-            reply = run_agent(
+            reply = run_pm_loop(
                 self.api_key,
                 self.model,
-                self.messages,
+                text,
                 self.run_log_path,
                 self.turn_id,
                 trace_sink=self.post_trace_event,
                 print_reply=False,
                 approval_callback=self.request_approval,
+                messages=self.messages,
             )
         except control.StopRequested:
             self.call_from_thread(self.finish_stopped)

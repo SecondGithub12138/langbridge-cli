@@ -74,9 +74,6 @@ def test_pm_loop_stops_after_single_bug_status_none_round(tmp_path, monkeypatch)
 
 
 def test_pm_update_plan_writes_todo_list(tmp_path, monkeypatch):
-    todo_path = tmp_path / "todo_list.md"
-    monkeypatch.setattr("langbridge_cli.tools.plan.TODO_LIST_PATH", todo_path)
-
     plan = "- [TODO] implement parser\n- [TODO] e2e test the parser\n"
     monkeypatch.setattr(
         "langbridge_cli.agents.agent.create_response",
@@ -90,7 +87,7 @@ def test_pm_update_plan_writes_todo_list(tmp_path, monkeypatch):
 
     run_pm_loop("key", "model", "build a parser", tmp_path / "run.json", 1, print_reply=False)
 
-    assert todo_path.read_text(encoding="utf-8") == plan
+    assert (tmp_path / "run.todo_list.md").read_text(encoding="utf-8") == plan
 
 
 def test_pm_delegates_to_l4_then_l3_passes(tmp_path, monkeypatch):

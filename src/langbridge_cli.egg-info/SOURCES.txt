@@ -28,14 +28,15 @@ src/langbridge_cli/persistence/context.py
 src/langbridge_cli/persistence/logging.py
 src/langbridge_cli/persistence/session.py
 src/langbridge_cli/persistence/worklog.py
+src/langbridge_cli/skills/__init__.py
 src/langbridge_cli/tools/__init__.py
 src/langbridge_cli/tools/agents.py
 src/langbridge_cli/tools/execution.py
 src/langbridge_cli/tools/filesystem.py
 src/langbridge_cli/tools/packages.py
 src/langbridge_cli/tools/plan.py
+src/langbridge_cli/tools/skills.py
 src/langbridge_cli/tools/testing.py
 src/langbridge_cli/tools/web.py
 src/langbridge_cli/ui/__init__.py
 src/langbridge_cli/ui/tui.py
-tests/test_wumpus_game.py

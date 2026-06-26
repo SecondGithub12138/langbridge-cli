@@ -1,6 +1,7 @@
 import copy
 import inspect
 import json
+import re
 import sys
 
 from openai import OpenAI, OpenAIError
@@ -49,20 +50,30 @@ def run_pm_loop(
     trace_sink=None,
     print_reply=True,
     approval_callback=None,
+    messages=None,
 ):
+    """Run one user turn as the PM, looping until the PM reports no open bug.
+
+    Both entry points (the TUI and the plain REPL) drive turns through here so
+    they behave identically apart from the UI. `messages` is the one growing
+    conversation kept by the caller, so the PM remembers the whole session.
+    Each loop the PM reviews the work (subtasks + end-to-end test); while it
+    reports BUG_STATUS: OPEN we feed it back to keep fixing, up to MAX_PM_LOOPS.
+    Callers that keep no history (one-shot / tests) let `messages` default to a
+    fresh conversation.
+    """
+    if messages is None:
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages.append({"role": "user", "content": pm_round_prompt(target, read_todo_list(run_log_path))})
     finished = ""
     start_time = now()
     for _ in range(MAX_PM_LOOPS):
         if over_time_budget(start_time, MAX_PM_SECONDS):
             break
-        round_input = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": pm_round_prompt(target, read_todo_list())},
-        ]
         finished = run_agent(
             api_key,
             model,
-            round_input,
+            messages,
             run_log_path,
             turn_id,
             trace_sink=trace_sink,
@@ -71,11 +82,28 @@ def run_pm_loop(
         )
         if not pm_should_continue(finished):
             break
+        messages.append({"role": "user", "content": pm_continue_prompt(read_todo_list(run_log_path))})
     return finished
 
 
 def pm_round_prompt(target, todo_list):
-    parts = [f"Task from the user:\n{target}"]
+    parts = [f"Latest user message:\n{target}"]
+    if todo_list:
+        parts.append(
+            "todo_list from earlier work (continue it only if the message above is "
+            f"a development task, not conversation):\n{todo_list}"
+        )
+    else:
+        parts.append("There is no todo_list yet.")
+    return "\n\n".join(parts)
+
+
+def pm_continue_prompt(todo_list):
+    parts = [
+        "There is still an open bug. Keep working: re-check each subtask and the "
+        "end-to-end test, and for anything still broken add a comment and send it "
+        "back to the engineer to fix. When everything passes, wrap up."
+    ]
     if todo_list:
         parts.append(f"Current todo_list:\n{todo_list}")
     else:
@@ -83,12 +111,24 @@ def pm_round_prompt(target, todo_list):
     return "\n\n".join(parts)
 
 
+_BUG_STATUS_RE = re.compile(r"\s*BUG_STATUS:\s*([A-Za-z]+)\s*$", re.IGNORECASE)
+
+
 def pm_should_continue(finished):
-    for line in reversed(finished.strip().splitlines()):
-        stripped = line.strip()
-        if stripped:
-            return stripped.upper() == "BUG_STATUS: OPEN"
-    return False
+    # The PM may emit BUG_STATUS on its own line or inline after the reply, so
+    # match the trailing token directly instead of relying on line splits.
+    match = _BUG_STATUS_RE.search(finished)
+    return bool(match) and match.group(1).upper() == "OPEN"
+
+
+def strip_bug_status(finished):
+    """Drop the PM's trailing BUG_STATUS control token before showing the reply.
+
+    BUG_STATUS drives pm_should_continue, not the user, so it should not surface
+    in the printed reply. The PM sometimes puts it on its own line and sometimes
+    inline, so we strip it from the end either way.
+    """
+    return _BUG_STATUS_RE.sub("", finished.rstrip()).rstrip()
 
 
 def run_agent(
@@ -137,7 +177,7 @@ def finish_pm(input, finished, run_log_path, turn_id, print_reply, worklog_id=No
     write_finish_log(run_log_path, turn_id, finished)
     write_worklog_finish(run_log_path, "PM agent", worklog_id, turn_id, finished)
     if print_reply:
-        print(f"\n{finished}\n")
+        print(f"\n{strip_bug_status(finished)}\n")
     return finished
 
 
@@ -517,4 +557,8 @@ def approve_write_tool(name, arguments, approval_callback=None):
     print(f"\nApprove write tool: {name}")
     print(json.dumps(arguments, ensure_ascii=False, indent=2))
     answer = input("Run this tool? [y/N] ")
-    return answer.strip().lower() in {"y", "yes"}
+    if answer.strip().lower() in {"y", "yes"}:
+        return True
+    # Denying at the prompt aborts the whole turn and returns to the REPL,
+    # rather than feeding a "not approved" tool error back to the model.
+    raise control.TurnAborted(f"{name} was denied.")
