@@ -7,8 +7,9 @@ from pathlib import Path
 from rich.text import Text
 from textual import events
 from textual.app import App, ComposeResult
-from textual.containers import Horizontal
-from textual.widgets import RichLog, Static, TextArea
+from textual.containers import Horizontal, Vertical
+from textual.screen import ModalScreen
+from textual.widgets import OptionList, RichLog, Static, TextArea
 
 from langbridge_cli.agents import control
 from langbridge_cli.agents.agent import run_pm_loop
@@ -62,8 +63,8 @@ except Exception:  # noqa: BLE001
 HELP_TEXT = """Commands:
   /help              show this help
   /new               start a new session
-  /sessions          list saved sessions
-  /resume <n>        resume session number <n> from /sessions
+  /sessions          open the session picker (Ctrl+R)
+  /resume [n]        open the picker, or resume session number <n>
   /delete <n>        delete session number <n>
   /approve [on|off]  approve a pending action, or toggle auto-approve
   /deny              deny a pending action
@@ -72,7 +73,7 @@ HELP_TEXT = """Commands:
   /exit              quit
 
 Keys: Enter send · Shift+Enter newline · Ctrl+A approve · Ctrl+D deny
-      Ctrl+P pause · Ctrl+S stop · Ctrl+C quit"""
+      Ctrl+P pause · Ctrl+S stop · Ctrl+R sessions · Ctrl+C quit"""
 
 
 class ChatInput(TextArea):
@@ -94,6 +95,70 @@ class ChatInput(TextArea):
             self.insert("\n")
             return
         await super()._on_key(event)
+
+
+class SessionPicker(ModalScreen):
+    """A clean, scrollable popup for choosing a saved session to resume.
+
+    Dismisses with the chosen session path, or None when cancelled. The
+    OptionList scrolls on its own once there are more sessions than fit.
+    """
+
+    CSS = """
+    SessionPicker {
+        align: center middle;
+        background: $background 55%;
+    }
+
+    #picker_box {
+        width: 72;
+        max-width: 90%;
+        height: auto;
+        max-height: 80%;
+        padding: 1 2;
+        border: round $accent;
+        background: $surface;
+    }
+
+    #picker_title {
+        text-style: bold;
+        color: $accent;
+        padding-bottom: 1;
+    }
+
+    #picker_list {
+        height: auto;
+        max-height: 16;
+        border: none;
+        background: $surface;
+    }
+
+    #picker_hint {
+        color: $text-muted;
+        padding-top: 1;
+    }
+    """
+
+    BINDINGS = [("escape", "cancel", "Cancel")]
+
+    def __init__(self, sessions):
+        super().__init__()
+        self.sessions = sessions
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="picker_box"):
+            yield Static(f"Resume a session  ({len(self.sessions)})", id="picker_title")
+            yield OptionList(*[label_session(path) for path in self.sessions], id="picker_list")
+            yield Static("\u2191/\u2193 move \u00b7 Enter resume \u00b7 Esc cancel", id="picker_hint")
+
+    def on_mount(self) -> None:
+        self.query_one("#picker_list", OptionList).focus()
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        self.dismiss(self.sessions[event.option_index])
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
 
 
 class LangBridgeTui(App):
@@ -174,6 +239,7 @@ class LangBridgeTui(App):
         ("ctrl+d", "deny_pending", "Deny"),
         ("ctrl+p", "toggle_pause", "Pause"),
         ("ctrl+s", "stop", "Stop"),
+        ("ctrl+r", "open_sessions", "Sessions"),
         ("ctrl+c", "quit", "Quit"),
     ]
 
@@ -455,20 +521,36 @@ class LangBridgeTui(App):
         self.start_new_session()
         self.update_status()
 
+    def action_open_sessions(self) -> None:
+        self.open_session_picker()
+
     def cmd_sessions(self):
+        self.open_session_picker()
+
+    def open_session_picker(self):
+        if self.turn_active:
+            self.write_system("Agent is busy. Use /stop first.", style=YELLOW)
+            return
         self.session_logs = list_session_logs()
         if not self.session_logs:
             self.write_system("No saved sessions.", style="dim")
             return
-        self.write_system("Sessions:", style="dim")
-        for index, path in enumerate(self.session_logs, start=1):
-            self.write_system(f"  {index}. {label_session(path)}", style="dim")
-        self.write_system("Resume with /resume <n> or delete with /delete <n>.", style="dim")
+        self.push_screen(SessionPicker(self.session_logs), self.on_session_picked)
+
+    def on_session_picked(self, path):
+        if path is not None:
+            self.resume_session(path)
 
     def cmd_resume(self, arg):
+        if arg is None:
+            self.open_session_picker()
+            return
         path = self._session_at(arg)
         if path is None:
             return
+        self.resume_session(path)
+
+    def resume_session(self, path):
         records = read_session_records(path)
         self.messages = restore_session_messages(records) or [{"role": "system", "content": SYSTEM_PROMPT}]
         self.run_log_path = path

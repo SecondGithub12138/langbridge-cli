@@ -219,8 +219,8 @@ changes take effect immediately. Use `uv sync --reinstall-package langbridge-cli
 | --- | --- |
 | `/help` | show all commands |
 | `/new` | start a new session |
-| `/sessions` | list saved sessions (numbered) |
-| `/resume <n>` | resume session number `<n>` |
+| `/sessions` | open the session picker (scrollable popup, also `Ctrl+R`) |
+| `/resume [n]` | open the picker, or resume session number `<n>` |
 | `/delete <n>` | delete session number `<n>` |
 | `/approve [on\|off]` | approve a pending action, or toggle auto-approve |
 | `/deny` | deny a pending action |
@@ -229,7 +229,10 @@ changes take effect immediately. Use `uv sync --reinstall-package langbridge-cli
 | `/exit` | quit |
 
 **Keys**: `Ctrl+A` approve · `Ctrl+D` deny · `Ctrl+P` pause · `Ctrl+S` stop ·
-`Ctrl+C` quit.
+`Ctrl+R` sessions · `Ctrl+C` quit.
+
+**Sessions**: `Ctrl+R` (or `/sessions`) opens a scrollable popup of saved
+sessions — move with `↑`/`↓`, `Enter` to resume, `Esc` to cancel.
 
 **Pause** (soft hold): holds the agent at the next step boundary and resumes the
 same run in place. It takes effect *between* steps, so an in-flight model call or
@@ -269,8 +272,11 @@ source .venv/bin/activate
 LANGBRIDGE_TERMINAL=1 langbridge
 ```
 
-Inside the CLI, type `/exit` to quit. The plain REPL has no pause button; use
-**Ctrl+C** to interrupt.
+The plain REPL runs the exact same agent loop as the Textual UI — one growing
+conversation (compacted when long) plus the PM review loop — so the two behave
+identically apart from the UI. At an approval prompt, answering `N` stops the
+current turn and returns you to the prompt for the next message. Type `/exit` to
+quit; the plain REPL has no pause button, so use **Ctrl+C** to interrupt.
 
 ### One-shot (headless)
 
