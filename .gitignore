@@ -17,6 +17,7 @@ evals/swebench/*.log
 # dataset pipeline outputs (regenerable jsonl + logs; not arrow/SWE-bench HF data)
 evals/dataset/out/
 evals/dataset/*.jsonl
+!evals/dataset/sample_validated.jsonl
 
 # training eval/evolver run artifacts
 training/results/

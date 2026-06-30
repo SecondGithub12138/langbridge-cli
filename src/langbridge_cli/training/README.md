@@ -4,12 +4,28 @@ This subsystem distills the "next-door" coder/reviewer self-play worktrial into
 this repo. The idea is the same two-loop design:
 
 - **Inner loop** (already in this repo): for one task, L4/L5 implement and L3
-  reviews, back and forth, until L3 passes or limits trip. Agent skills are fixed
-  here.
-- **Outer loop** (new, here): across many tasks, an **evolver** mines signals from
-  the traces and improves the agents — not by editing code, but by editing a
-  shared **policy** (extra guidance bullets + skills) that each role folds into its
-  prompt.
+  reviews, back and forth, until L3 passes or limits trip.
+- **Outer loop** (the evolver): across many tasks, mine signals from traces and
+  improve agents — not by editing code, but by editing a shared **policy**
+  (guidance bullets + skills) that each role folds into its prompt.
+
+## What `train` optimizes today
+
+**The evolver currently optimizes L4 and L3 only.**
+
+- `train` runs the **L4 ⇄ L3** inner review loop (`loop_fn`, default `layer="l4"`),
+  reconstructs traces from the **L34 shared worklog**, grades final diffs with
+  hidden tests, and proposes updates to **`l4` and `l3` guidance** (plus skills
+  aimed at implementers/reviewers).
+- **L5 and PM are not wired into `train` yet.** Eval hooks exist (`eval --role l5`,
+  `eval --role pm`), but the evolver does not read L5 Ralph (`l45_share`) or PM
+  outer-loop traces (todo_list, routing, BUG_STATUS). Policy slots for `pm` and
+  `l5` exist and are injected at runtime, but **trace mining + optimization for
+  those roles is still in development.**
+
+Default task source for eval/train: `evals/dataset/sample_validated.jsonl`
+(SWE-bench schema, `--source swebench`). Use `--source local` + `LANGBRIDGE_TARGET_REPO`
+for a git repo with cached specs under `training/specs/`.
 
 The mapping from next-door to this repo:
 
@@ -18,7 +34,7 @@ The mapping from next-door to this repo:
 | coder | **L4** (normal task) and **L5** (hard task, divide-and-conquer) |
 | reviewer | **L3** (tester) |
 | loop | the L4↔L3 and L5↔L3 inner review loops |
-| (none) | **PM** — top-level decompose → route L4/L5 → e2e, evaluated too |
+| (none) | **PM** — top-level decompose → route L4/L5 → e2e |
 
 ## What is built (and tested)
 
@@ -63,40 +79,50 @@ Integration wiring (depends on the chosen target repo + model; not unit-tested):
 - **Ground-truth anchoring**: correctness is decided by hidden regression tests,
   computed offline and never shown to the agents.
 
-## How to run (once a target repo is chosen)
+## How to run
+
+Default (validated pytest dataset):
+
+```bash
+export GITHUB_TOKEN=...                             # optional; raises API limits for dataset rebuild
+export LANGBRIDGE_MODEL=...                         # agent model
+
+# Evaluate one role under the current policy
+uv run python -m langbridge_cli.training.cli eval --role l4 --limit 5
+uv run python -m langbridge_cli.training.cli eval --role l3 --limit 5   # reviewer: gold + no-fix per task
+uv run python -m langbridge_cli.training.cli eval --role loop --limit 5 # same trace shape as train
+
+# Evolver epoch (L4/L3 policy only today)
+uv run python -m langbridge_cli.training.cli train --epochs 1 --batch-size 2
+
+# Evaluate a frozen checkpoint instead of the live policy
+LANGBRIDGE_POLICY_DIR=training/policy/checkpoints/epoch1 \
+  uv run python -m langbridge_cli.training.cli eval --role l3
+```
+
+Local git repo + specs cache:
 
 ```bash
 export LANGBRIDGE_TARGET_REPO=./arrow            # a git repo with bug-fix history
 export LANGBRIDGE_SPECS_DIR=training/specs
-export LANGBRIDGE_MODEL=...                       # agent model (see open question)
 
-# 1. Build F2P/P2P specs from real fix commits
-python -m langbridge_cli.training.cli specs --issues training/issues.json
+# Build F2P/P2P specs from real fix commits
+uv run python -m langbridge_cli.training.cli specs --issues training/issues.json
 
-# 2. Evaluate one role under the current policy
-python -m langbridge_cli.training.cli eval --role l4 --limit 5
-python -m langbridge_cli.training.cli eval --role l3 --limit 5   # reviewer: gold + no-fix per task
-
-# 3. Run the evolver (self-play) for one epoch
-python -m langbridge_cli.training.cli train --epochs 1 --batch-size 2
-
-# Evaluate a frozen checkpoint instead of the live policy
-LANGBRIDGE_POLICY_DIR=training/policy/checkpoints/epoch1 \
-  python -m langbridge_cli.training.cli eval --role l3
+uv run python -m langbridge_cli.training.cli eval --role l4 --limit 5 --source local
+uv run python -m langbridge_cli.training.cli train --epochs 1 --batch-size 2 --source local
 ```
 
 `issues.json` is a list of `{task_id, fix_commit, title, body_summary, hard?}`.
 
-## Open decisions (need confirmation)
+## Open decisions / future work
 
-1. **Target repo / task set.** Reuse next-door's `arrow` repo + 25 issues (small,
-   fast, cheap — best for many self-play loops), point at the existing SWE-bench
-   wiring (heavy/Docker), or curate a custom set? The grader is pluggable; default
-   is the arrow-style git F2P/P2P grader.
-2. **Model + cost.** This repo defaults to `gpt-5.1-codex`, which is expensive for
-   the many loop runs an evolver needs. Use a cheaper model for eval/evolver
-   (set `LANGBRIDGE_MODEL` / `--model`)?
-3. **Per-round diffs.** The subprocess adapter reconstructs verdicts/comments from
-   the shared worklog, but not per-round diffs, so responsiveness/alignment from
-   that path are approximate. Worth instrumenting the loop to emit a structured
-   trace if those signals matter.
+1. **L5 + PM traces for `train`.** Wire `loop_fn(layer="l5")` on hard tasks and
+   `pm_fn` for outer-loop traces; mine PM/L5-specific signals from worklogs.
+2. **Target repo / task set.** Default is `evals/dataset/`; local arrow-style
+   specs remain supported via `--source local`.
+3. **Model + cost.** Defaults are expensive for many self-play loops; set
+   `LANGBRIDGE_MODEL` / `--model` (and `--evolver-model`) as needed.
+4. **Per-round diffs.** The subprocess adapter reconstructs verdicts/comments from
+   the shared worklog, but not full per-round diffs, so responsiveness/alignment
+   from that path are approximate.

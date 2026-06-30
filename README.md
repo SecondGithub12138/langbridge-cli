@@ -14,6 +14,49 @@ Start it:
 uv run langbridge 
 ```
 
+## Evolve (self-play training)
+
+LangBridge is **self-evolving**: an outer **evolver** improves the team over many
+tasks without editing Python source — by updating a shared **policy** (per-role
+guidance bullets and evolver-written skills) that each agent folds into its
+prompt on the next run. Code lives in `src/langbridge_cli/training/`.
+
+Two nested loops:
+
+- **Inner loop** (the CLI): for one task, L4 or L5 implements and L3 reviews
+  until the work passes or limits trip.
+- **Outer loop** (the evolver / optimizer): across a batch of tasks, mine signals
+  from traces, propose policy changes, and **gate** them — keep a change only if
+  eval metrics improve and it does not reward-hack the reviewer.
+
+**Today the evolver optimizes L4 and L3 only.** `train` reads **L4 ⇄ L3** inner-loop
+traces (from the shared L34 worklog), grades with hidden tests, and updates
+`l4` / `l3` guidance (and skills aimed at implementers/reviewers). **L5 and PM
+trace mining and policy optimization are still in development** — eval hooks exist
+(`eval --role l5`, `eval --role pm`), but `train` does not consume L5 Ralph or PM
+outer-loop traces yet.
+
+Per-role **eval** (hidden **FAIL_TO_PASS / PASS_TO_PASS** tests, SWE-bench-style
+dataset in `evals/dataset/`):
+
+```bash
+# L4 implementer only
+uv run python -m langbridge_cli.training.cli eval --role l4 --limit 5
+
+# L3 reviewer (gold + no-fix cases per task, test-based labels)
+uv run python -m langbridge_cli.training.cli eval --role l3 --limit 5
+
+# Full L4 ⇄ L3 inner loop (same trace shape train uses today)
+uv run python -m langbridge_cli.training.cli eval --role loop --limit 5
+
+# Evolver epoch (L4/L3 policy only for now)
+uv run python -m langbridge_cli.training.cli train --epochs 1 --batch-size 2
+```
+
+For a local git repo + custom specs, set `LANGBRIDGE_TARGET_REPO` and use
+`--source local`. Full design, guards, and env vars:
+`src/langbridge_cli/training/README.md`.
+
 ## Loop Engineering
 
 LangBridge is built around **loop engineering**: instead of a single one-shot
@@ -190,47 +233,6 @@ alone — that would be judging a complaint about its own test. Instead a **jury
 - **Final check:** after all `component_task`s pass, if the project is runnable
   the PM brings it up and debugs by hand. A bug found this way becomes a **new
   `component_task`**; a clean run ships to the user.
-
-## Evolve (self-play training)
-
-The **evolve** subsystem lives in `src/langbridge_cli/training/`. It improves the
-team over many tasks without editing Python source — by updating a shared
-**policy** (per-role guidance bullets and evolver-written skills) that each agent
-folds into its prompt on the next run.
-
-Two nested loops:
-
-- **Inner loop** (the CLI above): for one task, L4 or L5 implements and L3
-  reviews until the work passes or limits trip.
-- **Outer loop** (the evolver): across a batch of tasks, mine signals from
-  traces, propose policy changes, and **gate** them — keep a change only if eval
-  metrics improve and it does not reward-hack the reviewer.
-
-Eval types cover all roles: `l4`, `l5`, `l3` (reviewer), `pm`, and the full
-`loop`. Grading uses hidden **FAIL_TO_PASS / PASS_TO_PASS** tests (same idea as
-SWE-bench). The **L3 reviewer eval** expands each task into two cases — the gold
-fix (should pass) and no fix (should fail) — labels them with the test grader,
-then asks L3 alone to approve or reject each patch.
-
-Quick start (default task source is the validated dataset in `evals/dataset/`):
-
-```bash
-# L4 implementer only
-uv run python -m langbridge_cli.training.cli eval --role l4 --limit 5
-
-# L3 reviewer only (gold + no-fix cases per task, test-based labels)
-uv run python -m langbridge_cli.training.cli eval --role l3 --limit 5
-
-# Full L4 ⇄ L3 inner loop
-uv run python -m langbridge_cli.training.cli eval --role loop --limit 5
-
-# Run one evolver epoch (self-play)
-uv run python -m langbridge_cli.training.cli train --epochs 1 --batch-size 2
-```
-
-For a local git repo + custom specs, set `LANGBRIDGE_TARGET_REPO` and use
-`--source local`. Full design, guards, and env vars:
-`src/langbridge_cli/training/README.md`.
 
 ## Eval (benchmarks & datasets)
 
